@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>emoji spam tool</title>
+<style>
+  :root{
+    --bg:#313338;--bg2:#2b2d31;--bg3:#1e1f22;--bg4:#232428;
+    --fg:#dbdee1;--fg2:#f2f3f5;--muted:#949ba4;--muted2:#6d6f78;
+    --border:#1e1f22;--accent:#5865f2;--accent-h:#4752c4;
+    --ok:#23a55a;--err:#f23f43;--warn:#f0b232;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font:14px/1.375 "gg sans","Noto Sans JP","Hiragino Sans",system-ui,sans-serif;
+    background:var(--bg);color:var(--fg);min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:16px;
+  }
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:var(--bg3)}
+  ::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:4px}
+  @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
+
+  .app{width:100%;max-width:780px;background:var(--bg2);border-radius:8px;overflow:hidden;
+       box-shadow:0 8px 32px rgba(0,0,0,.4);display:flex;flex-direction:column}
+
+  /* ── header ── */
+  .header{background:var(--bg2);padding:14px 20px;border-bottom:1px solid var(--border);
+          display:flex;align-items:center;gap:12px}
+  .logo{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;
+        display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex-shrink:0}
+  .title-wrap{display:flex;flex-direction:column;line-height:1.2}
+  .title-wrap h1{font-size:15px;font-weight:700;color:var(--fg2);letter-spacing:.2px}
+  .title-wrap .dev{font-size:11px;color:var(--muted);font-family:var(--mono)}
+  .title-wrap .dev a{color:var(--muted);text-decoration:none}
+  .title-wrap .dev a:hover{color:var(--fg2)}
+  .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .chip{font-size:11px;font-weight:600;padding:3px 8px;border-radius:4px;
+        background:var(--bg3);color:var(--muted);display:flex;align-items:center;gap:5px}
+  .chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--muted2)}
+  .chip[data-kind=run]{background:rgba(88,101,242,.15);color:#b3b9ff}
+  .chip[data-kind=run]::before{background:var(--accent);animation:pulse 1.2s infinite}
+  .chip[data-kind=ok]{background:rgba(35,165,90,.15);color:#3ddc84}
+  .chip[data-kind=ok]::before{background:var(--ok)}
+  .chip[data-kind=err]{background:rgba(242,63,67,.15);color:#ff7679}
+  .chip[data-kind=err]::before{background:var(--err)}
+  .chip[data-kind=warn]{background:rgba(240,178,50,.15);color:#ffd573}
+  .chip[data-kind=warn]::before{background:var(--warn)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* ── CORS notice ── */
+  .notice{padding:10px 16px;background:rgba(242,63,67,.1);
+          border-bottom:1px solid rgba(242,63,67,.3);color:#ff7679;
+          font-size:11px;line-height:1.6;display:none}
+  .notice.show{display:block}
+  .notice code{font-family:var(--mono);background:var(--bg3);padding:2px 5px;
+               border-radius:3px;color:#ffd573;user-select:all}
+  .notice strong{color:#fff}
+
+  /* ── layout ── */
+  .main{display:grid;grid-template-columns:260px 1fr;min-height:520px}
+  @media(max-width:680px){.main{grid-template-columns:1fr}}
+
+  /* ── sidebar ── */
+  .side{background:var(--bg3);padding:16px 12px;border-right:1px solid var(--border);
+        display:flex;flex-direction:column;gap:12px}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .side label{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.3px;
+              display:flex;align-items:center;justify-content:space-between}
+  .side label .count{font-weight:600;color:var(--muted2)}
+  .side textarea,.side input,.side select{
+    width:100%;padding:8px 10px;font:inherit;background:var(--bg);
+    color:var(--fg2);border:1px solid var(--bg3);border-radius:4px;font-size:13px}
+  .side textarea{min-height:70px;resize:vertical;font-family:var(--mono);font-size:12px;line-height:1.4}
+  .side input:disabled,.side textarea:disabled,.side select:disabled{opacity:.55}
+  .side input:focus,.side textarea:focus,.side select:focus{outline:none;border-color:var(--accent)}
+  .hint{font-size:10px;color:var(--muted2);margin-top:2px;line-height:1.4}
+  .hint code{font-family:var(--mono);background:var(--bg4);padding:0 3px;border-radius:2px}
+  .btn{width:100%;padding:9px;font:inherit;font-weight:600;font-size:13px;
+       color:#fff;background:var(--accent);border:0;border-radius:4px;
+       cursor:pointer;transition:background .1s}
+  .btn:hover:not(:disabled){background:var(--accent-h)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.danger{background:var(--err)}
+  .btn.danger:hover:not(:disabled){background:#c9302c}
+
+  /* ── emoji input ── */
+  .emoji-bar{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+  .emoji-bar button{width:28px;height:28px;padding:0;font-size:15px;
+                    background:var(--bg3);border:1px solid transparent;
+                    border-radius:4px;cursor:pointer;transition:background .1s}
+  .emoji-bar button:hover{background:var(--bg4);border-color:var(--accent)}
+
+  /* ── content ── */
+  .content{padding:16px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+  .section-title{font-size:11px;font-weight:700;color:var(--muted);
+                 letter-spacing:.4px;display:flex;align-items:center;gap:8px}
+  .section-title::after{content:"";flex:1;height:1px;background:var(--border)}
+
+  /* message card */
+  .msg-card{display:none;background:var(--bg);border-left:3px solid var(--accent);
+            border-radius:4px;padding:10px 12px}
+  .msg-card.show{display:block}
+  .msg-card .row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+  .avatar{width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;
+          display:flex;align-items:center;justify-content:center;font-size:13px;
+          font-weight:700;flex-shrink:0}
+  .msg-card .user{font-weight:600;color:var(--fg2);font-size:14px}
+  .msg-card .time{font-size:11px;color:var(--muted2)}
+  .msg-card .ch{font-size:11px;color:var(--muted);background:var(--bg3);
+                padding:1px 6px;border-radius:3px;font-family:var(--mono)}
+  .msg-card .body{font-size:14px;color:var(--fg);white-space:pre-wrap;
+                  word-break:break-word;line-height:1.375}
+  .msg-card .meta{font-size:11px;color:var(--muted2);font-family:var(--mono);margin-top:6px}
+
+  /* log */
+  .log-box{background:var(--bg3);border-radius:4px;padding:10px 12px;
+           font-family:var(--mono);font-size:12px;line-height:1.55;
+           max-height:240px;overflow-y:auto;white-space:pre-wrap;color:var(--fg)}
+  .log-box:empty::before{content:"待機中...";color:var(--muted2);font-style:italic}
+  .l-info{color:var(--muted)}.l-ok{color:#3ddc84}
+  .l-warn{color:var(--warn)}.l-err{color:#ff7679}
+
+  /* progress */
+  .progress{display:none;flex-direction:column;gap:4px}
+  .progress.show{display:flex}
+  .progress .track{height:6px;background:var(--bg3);border-radius:3px;overflow:hidden}
+  .progress .bar{height:100%;background:var(--accent);width:0;transition:width .15s ease-out}
+  .progress .meta{display:flex;justify-content:space-between;font-size:11px;
+                  color:var(--muted2);font-family:var(--mono)}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <div class="logo">e</div>
+    <div class="title-wrap">
+      <h1>emoji spam tool</h1>
+      <span class="dev">開発者 <a href="https://github.com/kurudojindegomen" target="_blank" rel="noopener">@kurudojindegomen</a></span>
+    </div>
+    <div class="right"><span class="chip" id="chip" data-kind="" aria-live="polite">待機中</span></div>
+  </div>
+
+  <div class="notice" id="corsNotice">
+    <strong>CORSでブロックされました。</strong> このHTMLは <code>--disable-web-security</code> 付きのChromeで開くか、Cloudflare WorkerのプロキシURLを設定してください。
+  </div>
+
+  <div class="main">
+    <div class="side">
+      <div class="field">
+        <label>トークン <span class="count" id="tokenMeta">0</span></label>
+        <textarea id="tokens" spellcheck="false" autocomplete="off" placeholder="Token1&#10;Token2"></textarea>
+      </div>
+
+      <div class="field">
+        <label>サーバーID</label>
+        <input id="guildId" type="text" spellcheck="false" placeholder="サーバーID または URL">
+      </div>
+
+      <div class="field">
+        <label>絵文字 <span class="count" id="emojiCount">1</span></label>
+        <input id="emoji" type="text" value="✅" spellcheck="false" autocomplete="off" placeholder="✅,👍,🔥">
+        <div class="emoji-bar" id="emojiBar"></div>
+      </div>
+
+      <div class="field">
+        <label>ターゲットユーザー</label>
+        <input id="targetUser" type="text" spellcheck="false" placeholder="ユーザーID または @username">
+        <div class="hint">空ならサーバー最新 / 指定時はそのユーザーの最新投稿</div>
+      </div>
+
+      <div class="field">
+        <label>プロキシURL <span class="count" style="color:var(--err)">推奨</span></label>
+        <input id="proxyUrl" type="text" spellcheck="false" placeholder="https://xxxx.workers.dev">
+        <div class="hint">CORS回避用（後述のCloudflare Worker）</div>
+      </div>
+
+      <button class="btn" id="submit">実行</button>
+      <button class="btn danger" id="cancel" hidden>中断</button>
+    </div>
+
+    <div class="content">
+      <div class="section-title">対象メッセージ</div>
+      <div class="msg-card" id="msgCard">
+        <div class="row">
+          <div class="avatar" id="resAvatar">?</div>
+          <div><span class="user" id="resUser">-</span> <span class="time" id="resTime">-</span></div>
+          <span class="ch" id="resCh"></span>
+        </div>
+        <div class="body" id="resBody"></div>
+        <div class="meta" id="resMeta"></div>
+      </div>
+
+      <div class="progress" id="progress">
+        <div class="track"><div class="bar" id="progressBar"></div></div>
+        <div class="meta"><span id="progressCount">0 / 0</span><span id="progressEta"></span></div>
+      </div>
+
+      <div class="section-title">ログ</div>
+      <div class="log-box" id="log" aria-live="off"></div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+'use strict';
+
+/* ============================================================
+ * 設定
+ * ============================================================ */
+const CFG = Object.freeze({
+  API: 'https://discord.com/api/v10',
+  TIMEOUT_MS: 30000,
+  RETRIES: 5,
+  BACKOFF_BASE: 700,
+  BACKOFF_MAX: 30000,
+  FETCH_CONCURRENCY: 5,
+  TARGET_SCAN_LIMIT: 50,
+  SNOWFLAKE_RE: /^\d{17,20}$/,
+  EMOJI_SPLIT: /[,、\s\u3000\u30FB\uFF0C]+/,
+  TEXT_TYPES: new Set([0, 5]),
+  C_UNKNOWN_EMOJI: 10014,
+  C_UNKNOWN_MSG: 10008,
+  C_MISSING_ACCESS: 50001,
+  C_REACTION_LIMIT: 30010,
+  C_UNKNOWN_GUILD: 10004,
+  REACTION_CAP: 20,
+});
+
+const PRESET_EMOJIS = ['✅','👍','🔥','❤️','🎉','🚀','😂','💯','👀','⚡','💀','✨'];
+
+/* ============================================================
+ * ユーティリティ
+ * ============================================================ */
+const U = Object.freeze({
+  sleep(ms, signal) {
+    return new Promise((res, rej) => {
+      if (signal?.aborted) return rej(new DOMException('Cancelled', 'AbortError'));
+      const onAbort = () => { clearTimeout(t); rej(new DOMException('Cancelled', 'AbortError')); };
+      const t = setTimeout(() => { signal?.removeEventListener('abort', onAbort); res(); }, ms);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  },
+  combine(signals) {
+    if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
+    const ctrl = new AbortController();
+    for (const s of signals) if (s.aborted) { ctrl.abort(s.reason); return ctrl.signal; }
+    const h = e => ctrl.abort(e.target?.reason);
+    for (const s of signals) s.addEventListener('abort', h, { once: true });
+    return ctrl.signal;
+  },
+  snowflakes(s) { return String(s).match(/\d{17,20}/g) || []; },
+  firstSnowflake(s) { return U.snowflakes(s)[0] || ''; },
+  safeJSON(s, fb = null) { try { return JSON.parse(s); } catch { return fb; } },
+  fmt(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return '—';
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}秒`;
+    const m = Math.floor(s / 60);
+    return m < 60 ? `${m}分${s % 60}秒` : `${Math.floor(m / 60)}時間${m % 60}分`;
+  },
+  ts(iso) {
+    try {
+      const d = new Date(iso);
+      const diff = (Date.now() - d.getTime()) / 1000;
+      if (diff < 60) return 'たった今';
+      if (diff < 3600) return `${Math.floor(diff / 60)}分前`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}時間前`;
+      return d.toLocaleDateString('ja-JP');
+    } catch { return iso; }
+  },
+  async mapLimit(items, limit, fn) {
+    const results = new Array(items.length);
+    let idx = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (true) {
+        const i = idx++;
+        if (i >= items.length) return;
+        try { results[i] = { ok: true, value: await fn(items[i], i) }; }
+        catch (err) { results[i] = { ok: false, error: err }; }
+      }
+    });
+    await Promise.all(workers);
+    return results;
+  },
+  normalizeToken(t) { return String(t).replace(/^Bot\s+/i, '').trim(); },
+  parseTargetUser(v) { return String(v || '').trim().replace(/^@/, ''); },
+});
+
+/* ============================================================
+ * 絵文字パーサ
+ * ============================================================ */
+const Emoji = Object.freeze({
+  CUSTOM: /^<a?:[A-Za-z0-9_]{2,32}:\d{15,22}>$/,
+  KEYCAP: /^[0-9#*]\uFE0F?\u20E3$/,
+  BARE: /^<a?:([\w~]+):(\d{15,22})>$/,
+  valid(t) {
+    if (this.CUSTOM.test(t)) return true;
+    if (!t || [...t].length > 16) return false;
+    if (this.KEYCAP.test(t)) return true;
+    let hasSym = false;
+    for (const ch of t) {
+      const cp = ch.codePointAt(0);
+      if (/\p{So}/u.test(ch)) hasSym = true;
+      else if (!(cp === 0x200D || cp === 0xFE0F ||
+                (cp >= 0x1F3FB && cp <= 0x1F3FF) ||
+                (cp >= 0xE0020 && cp <= 0xE007F))) return false;
+    }
+    return hasSym;
+  },
+  toApi(t) { const m = t.match(this.BARE); return m ? `${m[1]}:${m[2]}` : t; },
+  parse(input) {
+    const parts = String(input || '').trim().split(CFG.EMOJI_SPLIT).filter(Boolean);
+    const seen = new Set(), emojis = [], invalid = [];
+    for (const p of parts) {
+      if (this.valid(p)) {
+        const a = this.toApi(p);
+        if (!seen.has(a)) { seen.add(a); emojis.push(a); }
+      } else invalid.push(p);
+    }
+    return { emojis, invalid };
+  },
+});
+
+/* ============================================================
+ * ログ
+ * ============================================================ */
+const Log = (() => {
+  const el = document.getElementById('log');
+  const write = (level, msg) => {
+    const d = document.createElement('div');
+    d.className = `l-${level}`;
+    d.textContent = msg;
+    el.appendChild(d);
+    el.scrollTop = el.scrollHeight;
+  };
+  return { info: m => write('info', m), ok: m => write('ok', m), warn: m => write('warn', m), err: m => write('err', m) };
+})();
+
+/* ============================================================
+ * エラー
+ * ============================================================ */
+class ApiError extends Error {
+  constructor(status, body = '') {
+    super(`HTTP ${status}`);
+    this.name = 'ApiError';
+    this.status = status;
+    const p = U.safeJSON(body, {});
+    this.code = typeof p?.code === 'number' ? p.code : 0;
+  }
+  isInvalidToken() { return this.status === 401; }
+  isForbidden() { return this.status === 403 || this.code === CFG.C_MISSING_ACCESS; }
+  isSkip() { return this.code === CFG.C_REACTION_LIMIT || this.code === CFG.C_UNKNOWN_MSG; }
+  isConfigError() { return this.code === CFG.C_UNKNOWN_EMOJI; }
+  isFatal() { return this.code === CFG.C_UNKNOWN_GUILD; }
+  msg() {
+    if (this.isInvalidToken()) return '無効トークン';
+    if (this.isForbidden()) return '権限なし';
+    if (this.status === 404) return '見つかりません';
+    if (this.status === 429) return 'レート制限';
+    if (this.isConfigError()) return '不明な絵文字';
+    if (this.isSkip()) return 'スキップ';
+    if (this.isFatal()) return 'サーバー不明';
+    return `HTTP ${this.status}`;
+  }
+}
+class CorsError extends Error {
+  constructor() { super('CORSでブロックされました'); this.name = 'CorsError'; }
+}
+
+/* ============================================================
+ * レートリミッター
+ * ============================================================ */
+class RateLimiter {
+  #buckets = new Map();
+  #globalUntil = 0;
+  async wait(key, signal) {
+    const now = Date.now();
+    if (this.#globalUntil > now) await U.sleep(this.#globalUntil - now, signal);
+    const b = this.#buckets.get(key);
+    if (b && b.remaining <= 0 && b.resetAt > Date.now()) {
+      await U.sleep(b.resetAt - Date.now(), signal);
+    }
+  }
+  update(key, headers) {
+    const remaining  = Number(headers.get('X-RateLimit-Remaining'));
+    const resetAfter = Number(headers.get('X-RateLimit-Reset-After'));
+    const resetAt    = Number(headers.get('X-RateLimit-Reset'));
+    const isGlobal   = headers.get('X-RateLimit-Global') === 'true';
+    if (Number.isFinite(remaining)) {
+      let at;
+      if (Number.isFinite(resetAfter) && resetAfter >= 0) at = Date.now() + Math.max(resetAfter, 0.05) * 1000;
+      else if (Number.isFinite(resetAt) && resetAt > 0) at = resetAt * 1000;
+      else at = Date.now() + 1000;
+      this.#buckets.set(key, { remaining, resetAt: at });
+    }
+    if (isGlobal) {
+      const ra = Number(headers.get('Retry-After') || '1');
+      this.#globalUntil = Date.now() + Math.max(0.5, ra) * 1000;
+    }
+  }
+}
+
+/* ============================================================
+ * Super Properties
+ * ============================================================ */
+const SUPER_PROPS = (() => {
+  try {
+    const ua = navigator.userAgent || '';
+    const os = /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac OS X' : /Linux/.test(ua) ? 'Linux' : 'Unknown';
+    const props = {
+      os, browser: 'Chrome', device: '',
+      system_locale: navigator.language || 'ja-JP',
+      browser_user_agent: ua,
+      browser_version: (ua.match(/Chrome\/([\d.]+)/) || [])[1] || '',
+      release_channel: 'stable',
+    };
+    const bytes = new TextEncoder().encode(JSON.stringify(props));
+    let bin = '';
+    bytes.forEach(b => { bin += String.fromCharCode(b); });
+    return btoa(bin);
+  } catch { return ''; }
+})();
+
+/* ============================================================
+ * TokenClient
+ * ============================================================ */
+class TokenClient {
+  #limiter = new RateLimiter();
+  #queue = Promise.resolve();
+  #selfId = null;
+  #apiBase;
+  constructor(token, apiBase) {
+    this.token = U.normalizeToken(token);
+    this.#apiBase = apiBase;
+    this.ctrl = new AbortController();
+    this.label = this.token.slice(0, 6) + '…';
+  }
+  get signal() { return this.ctrl.signal; }
+  get cancelled() { return this.ctrl.signal.aborted; }
+  get selfId() { return this.#selfId; }
+  cancel() { if (!this.cancelled) this.ctrl.abort(); }
+
+  #headers() {
+    const h = { Authorization: this.token, 'Content-Type': 'application/json',
+                'X-Discord-Locale': navigator.language || 'ja-JP' };
+    if (SUPER_PROPS) h['X-Super-Properties'] = SUPER_PROPS;
+    return h;
+  }
+
+  request(method, path, { expectJson = false, bucket = path, timeoutMs = CFG.TIMEOUT_MS } = {}) {
+    const run = async () => {
+      if (this.cancelled) throw new DOMException('Cancelled', 'AbortError');
+      for (let attempt = 0; attempt <= CFG.RETRIES; attempt++) {
+        await this.#limiter.wait(bucket, this.signal);
+        if (this.cancelled) throw new DOMException('Cancelled', 'AbortError');
+
+        const timeoutCtrl = new AbortController();
+        const timer = setTimeout(() => timeoutCtrl.abort(new DOMException('Timeout', 'TimeoutError')), timeoutMs);
+        const combined = U.combine([this.signal, timeoutCtrl.signal]);
+
+        try {
+          const res = await fetch(this.#apiBase + path, { method, headers: this.#headers(), signal: combined });
+          clearTimeout(timer);
+          this.#limiter.update(bucket, res.headers);
+
+          if (res.status === 429) {
+            const ra = Number(res.headers.get('Retry-After') || '1');
+            await res.text().catch(() => '');
+            if (attempt === CFG.RETRIES) throw new ApiError(429);
+            await U.sleep(Math.max(800, ra * 1000), this.signal);
+            continue;
+          }
+          if (res.status >= 500 && attempt < CFG.RETRIES) {
+            await res.text().catch(() => '');
+            const wait = Math.min(CFG.BACKOFF_BASE * 2 ** attempt, CFG.BACKOFF_MAX);
+            await U.sleep(wait * (0.8 + Math.random() * 0.4), this.signal);
+            continue;
+          }
+          if (!res.ok) {
+            const body = await res.text().catch(() => '');
+            throw new ApiError(res.status, body);
+          }
+          if (res.status === 204 || !expectJson) {
+            await res.text().catch(() => '');
+            return null;
+          }
+          return await res.json();
+        } catch (err) {
+          clearTimeout(timer);
+          if (err.name === 'AbortError') {
+            if (this.cancelled) throw err;
+            if (attempt < CFG.RETRIES) { await U.sleep(CFG.BACKOFF_BASE * 2 ** attempt, this.signal); continue; }
+            throw new Error('タイムアウト');
+          }
+          if (err instanceof ApiError) throw err;
+          if (err instanceof TypeError) throw new CorsError();
+          if (attempt < CFG.RETRIES) { await U.sleep(CFG.BACKOFF_BASE * 2 ** attempt, this.signal); continue; }
+          throw err;
+        }
+      }
+      throw new Error('再試行上限');
+    };
+    const next = this.#queue.then(run, run);
+    this.#queue = next.catch(() => {});
+    return next;
+  }
+
+  async getSelf() {
+    const me = await this.request('GET', '/users/@me', { expectJson: true, bucket: 'GET:/users/@me' });
+    this.#selfId = me.id;
+    return me;
+  }
+  async getGuildChannels(guildId) {
+    return this.request('GET', `/guilds/${guildId}/channels`, { expectJson: true, bucket: 'GET:/guilds/:id/channels' });
+  }
+  async getMessages(channelId, limit = 1) {
+    const msgs = await this.request(
+      'GET', `/channels/${channelId}/messages?limit=${limit}`,
+      { expectJson: true, bucket: 'GET:/channels/:id/messages' }
+    );
+    return Array.isArray(msgs) ? msgs : [];
+  }
+  async getReactionUsers(channelId, messageId, emoji, limit = 100) {
+    const users = await this.request(
+      'GET',
+      `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}?limit=${limit}`,
+      { expectJson: true, bucket: 'GET:/channels/:id/messages/:id/reactions/:emoji' }
+    );
+    return Array.isArray(users) ? users : [];
+  }
+  async react(channelId, messageId, emoji) {
+    return this.request('PUT',
+      `/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+      { bucket: 'PUT:/channels/:id/messages/:id/reactions/:emoji/@me' });
+  }
+}
+
+/* ============================================================
+ * マッチング
+ * ============================================================ */
+function matchMessage(msg, keywords) {
+  if (!keywords || keywords.length === 0) return true;
+  const c = String(msg.content || '').toLowerCase();
+  return keywords.some(k => c.includes(k.toLowerCase()));
+}
+
+function matchAuthor(msg, targetUser) {
+  if (!targetUser) return true;
+  const a = msg.author;
+  if (!a) return false;
+  const t = String(targetUser).trim().toLowerCase();
+  if (/^\d{17,20}$/.test(t)) return a.id === t;
+  return (a.username?.toLowerCase() === t) || (a.global_name?.toLowerCase() === t);
+}
+
+/* ============================================================
+ * DOM
+ * ============================================================ */
+const $ = id => document.getElementById(id);
+const el = {
+  tokens: $('tokens'), tokenMeta: $('tokenMeta'), guildId: $('guildId'),
+  emoji: $('emoji'), emojiBar: $('emojiBar'), emojiCount: $('emojiCount'),
+  targetUser: $('targetUser'), proxyUrl: $('proxyUrl'),
+  corsNotice: $('corsNotice'),
+  submit: $('submit'), cancel: $('cancel'),
+  chip: $('chip'), progress: $('progress'), progressBar: $('progressBar'),
+  progressCount: $('progressCount'), progressEta: $('progressEta'),
+  msgCard: $('msgCard'), resAvatar: $('resAvatar'), resUser: $('resUser'),
+  resTime: $('resTime'), resCh: $('resCh'), resBody: $('resBody'), resMeta: $('resMeta'),
+  log: $('log'),
+};
+
+let running = false;
+let sessionCtrl = null;
+let clients = [];
+
+/* ============================================================
+ * UI ヘルパ
+ * ============================================================ */
+function setChip(text, kind = '') { el.chip.textContent = text; el.chip.dataset.kind = kind; }
+function setRunning(v) {
+  running = v;
+  el.submit.disabled = v; el.cancel.hidden = !v;
+  el.submit.textContent = v ? '実行中…' : '実行';
+  [el.tokens, el.guildId, el.emoji, el.targetUser, el.proxyUrl].forEach(x => { x.disabled = v; });
+}
+function updateTokenMeta() {
+  const raw = el.tokens.value.split('\n').map(t => t.trim()).filter(Boolean);
+  const unique = new Set(raw.map(U.normalizeToken));
+  el.tokenMeta.textContent = unique.size + (raw.length !== unique.size ? ` (重複${raw.length - unique.size})` : '');
+}
+function showProgress(done, total, eta) {
+  el.progress.classList.add('show');
+  el.progressBar.style.width = `${total ? done / total * 100 : 0}%`;
+  el.progressCount.textContent = `${done} / ${total}`;
+  el.progressEta.textContent = eta !== null ? `残り ${U.fmt(eta)}` : '';
+}
+function renderMessage(msg) {
+  const author = msg.author?.global_name || msg.author?.username || 'unknown';
+  el.resAvatar.textContent = author[0]?.toUpperCase() || '?';
+  el.resUser.textContent = author;
+  el.resTime.textContent = U.ts(msg.timestamp);
+  el.resCh.textContent = `#${msg._channel?.name || msg.channel_id}`;
+  el.resBody.textContent = msg.content || '（本文なし）';
+  el.resMeta.textContent = `msg ${msg.id}` + (msg.attachments?.length ? ` · 添付${msg.attachments.length}` : '');
+  el.msgCard.classList.add('show');
+}
+
+/* ============================================================
+ * ターゲット検索（チャンネル絞り込み・キーワード削除）
+ * ============================================================ */
+async function findTarget(client, guildId, targetUser, signal) {
+  const channels = await client.getGuildChannels(guildId);
+  const textChannels = channels.filter(c => CFG.TEXT_TYPES.has(c.type));
+  if (textChannels.length === 0) throw new Error('対象のテキストチャンネルがありません');
+
+  const limit = targetUser ? CFG.TARGET_SCAN_LIMIT : 1;
+
+  const settled = await U.mapLimit(textChannels, CFG.FETCH_CONCURRENCY, async ch => {
+    if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const msgs = await client.getMessages(ch.id, limit);
+    let latest = null;
+    for (const msg of msgs) {
+      if (matchAuthor(msg, targetUser)) {
+        if (!latest || BigInt(msg.id) > BigInt(latest.id)) latest = msg;
+      }
+    }
+    return latest ? { ...latest, _channel: ch } : null;
+  });
+
+  let latest = null;
+  for (const r of settled) {
+    if (r.ok && r.value) {
+      if (!latest || BigInt(r.value.id) > BigInt(latest.id)) latest = r.value;
+    }
+  }
+  if (!latest) throw new Error(targetUser
+    ? `ターゲットユーザー「${targetUser}」のメッセージが見つかりません`
+    : 'メッセージが見つかりません');
+  return latest;
+}
+
+/* ============================================================
+ * クレーム判定
+ * ============================================================ */
+async function isMessageClaimedByUs(msg, clients, emojiList, signal) {
+  const ourIds = new Set(clients.map(c => c.selfId).filter(Boolean));
+  if (ourIds.size === 0) return { claimed: false, reason: 'IDなし' };
+  const existingReactions = Array.isArray(msg.reactions) ? msg.reactions : [];
+  if (existingReactions.some(r => r.me)) return { claimed: true, reason: '自分のリアクションあり' };
+  if (existingReactions.length === 0) return { claimed: false, reason: '既存リアクションなし' };
+  for (const r of existingReactions) {
+    if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+    const e = r.emoji;
+    const em = e.id ? `${e.name}:${e.id}` : e.name;
+    try {
+      const users = await clients[0].getReactionUsers(msg.channel_id, msg.id, em);
+      for (const u of users) if (ourIds.has(u.id)) return { claimed: true, reason: `他のアカウント(${u.id})が ${em} に付与済み` };
+    } catch (err) {
+      if (err.name === 'AbortError') throw err;
+      if (err instanceof ApiError && err.status === 404) continue;
+      Log.warn(`ピア確認失敗 (${em}): ${err.message || err}`);
+      return { claimed: true, reason: `ピア確認失敗: ${err.message || err}` };
+    }
+  }
+  return { claimed: false, reason: '他のアカウントなし' };
+}
+
+/* ============================================================
+ * メイン
+ * ============================================================ */
+async function run() {
+  if (running) return;
+
+  const proxyUrl = el.proxyUrl.value.trim().replace(/\/+$/, '');
+  const apiBase = proxyUrl ? proxyUrl + '/api/v10' : CFG.API;
+
+  const rawTokens = el.tokens.value.split('\n').map(t => t.trim()).filter(Boolean);
+  const normalized = [...new Set(rawTokens.map(U.normalizeToken))];
+  const guildId = U.firstSnowflake(el.guildId.value);
+  const { emojis, invalid } = Emoji.parse(el.emoji.value);
+  const targetUser = U.parseTargetUser(el.targetUser.value);
+
+  el.corsNotice.classList.remove('show');
+
+  if (normalized.length === 0) { setChip('トークンなし', 'err'); return; }
+  if (!CFG.SNOWFLAKE_RE.test(guildId)) { setChip('サーバーID不正', 'err'); return; }
+  if (emojis.length === 0) { setChip(`絵文字不正${invalid.length ? ` (${invalid.join(',')})` : ''}`, 'err'); return; }
+
+  const emojiList = emojis.slice(0, CFG.REACTION_CAP);
+  if (emojis.length > CFG.REACTION_CAP) Log.warn(`上限${CFG.REACTION_CAP}を超過（入力${emojis.length}個）`);
+
+  sessionCtrl = new AbortController();
+  clients = normalized.map(t => new TokenClient(t, apiBase));
+
+  setRunning(true);
+  el.msgCard.classList.remove('show');
+  el.progress.classList.remove('show');
+  el.log.replaceChildren();
+  setChip('準備中…', 'run');
+
+  try {
+    /* 生存確認 */
+    const alive = [];
+    for (const c of clients) {
+      try { await c.getSelf(); alive.push(c); Log.info(`${c.label} → ${c.selfId}`); }
+      catch (err) {
+        if (err.name === 'AbortError') throw err;
+        if (err instanceof CorsError) throw err;
+        Log.warn(`${c.label}: ${err.message || err}`);
+      }
+    }
+    if (alive.length === 0) throw new Error('有効なトークンがありません');
+    clients = alive;
+
+    /* 対象特定 */
+    setChip('チャンネル取得中…', 'run');
+    Log.info(targetUser ? `ターゲット: ${targetUser}` : 'ターゲット指定なし（サーバー最新）');
+    const latest = await findTarget(clients[0], guildId, targetUser, sessionCtrl.signal);
+    Log.info(`対象: #${latest._channel?.name} / ${latest.id} / 投稿者: ${latest.author?.username || '?'}`);
+    renderMessage(latest);
+
+    /* クレーム確認 */
+    setChip('確認中…', 'run');
+    const { claimed, reason } = await isMessageClaimedByUs(latest, clients, emojiList, sessionCtrl.signal);
+    Log.info(`クレーム確認: ${reason}`);
+    if (claimed) { Log.warn('既にリアクション済み → スキップ'); setChip('既にリアクション済み', 'ok'); return; }
+
+    /* リアクション付与 */
+    const owner = clients[0];
+    Log.info(`担当: ${owner.label}`);
+
+    const total = emojiList.length;
+    let done = 0, ok = 0, skip = 0, err = 0;
+    const start = performance.now();
+    setChip(`送信中 0/${total}`, 'run');
+
+    for (let j = 0; j < emojiList.length; j++) {
+      if (sessionCtrl.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const em = emojiList[j];
+      try {
+        await owner.react(latest.channel_id, latest.id, em);
+        ok++; Log.ok(`${owner.label} ${em} → 成功`);
+      } catch (e) {
+        if (e.name === 'AbortError') throw e;
+        if (e instanceof CorsError) throw e;
+        if (e instanceof ApiError && e.isConfigError()) { Log.err(`${em} → ${e.msg()}`); skip++; }
+        else if (e instanceof ApiError && e.isSkip()) { skip++; Log.warn(`${em} → ${e.msg()}`); }
+        else { err++; Log.err(`${em} → ${e.message || e}`); }
+      }
+      done++;
+      const elapsed = performance.now() - start;
+      const eta = done > 0 ? (elapsed / done) * (total - done) : null;
+      showProgress(done, total, eta);
+      setChip(`送信中 ${done}/${total}`, 'run');
+    }
+
+    const sec = ((performance.now() - start) / 1000).toFixed(1);
+    if (err === 0) setChip(`完了 · 成功${ok} · ${sec}秒`, 'ok');
+    else setChip(`完了 · 成功${ok} · 失敗${err}`, 'warn');
+
+  } catch (err) {
+    if (err.name === 'AbortError') setChip('中断', 'warn');
+    else if (err instanceof CorsError) {
+      el.corsNotice.classList.add('show');
+      setChip('CORSエラー', 'err');
+      Log.err('CORS: --disable-web-security 付きChromeで開くか、プロキシURLを設定してください');
+    } else {
+      setChip(`エラー: ${err.message}`, 'err');
+      Log.err(err.message);
+      console.error(err);
+    }
+  } finally {
+    setRunning(false);
+    clients = [];
+    sessionCtrl = null;
+  }
+}
+
+/* ============================================================
+ * 絵文字バー
+ * ============================================================ */
+function buildEmojiBar() {
+  el.emojiBar.replaceChildren();
+  for (const em of PRESET_EMOJIS) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.textContent = em;
+    b.addEventListener('click', () => {
+      const { emojis } = Emoji.parse(el.emoji.value);
+      if (!emojis.includes(Emoji.toApi(em))) {
+        emojis.push(Emoji.toApi(em));
+        el.emoji.value = emojis.join(', ');
+      }
+    });
+    el.emojiBar.appendChild(b);
+  }
+}
+
+function cleanup() {
+  try { sessionCtrl?.abort(); } catch {}
+  clients.forEach(c => c.cancel());
+  clients = []; sessionCtrl = null;
+  el.tokens.value = '';
+}
+
+/* ============================================================
+ * イベント
+ * ============================================================ */
+el.submit.addEventListener('click', run);
+el.cancel.addEventListener('click', () => { sessionCtrl?.abort(); clients.forEach(c => c.cancel()); });
+el.tokens.addEventListener('input', updateTokenMeta);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && running) { e.preventDefault(); el.cancel.click(); }
+  if (e.ctrlKey && e.key === 'Enter' && !running) { e.preventDefault(); run(); }
+});
+window.addEventListener('pagehide', cleanup);
+
+/* ============================================================
+ * 初期化
+ * ============================================================ */
+buildEmojiBar();
+updateTokenMeta();
+setChip('待機中');
+</script>
+</body>
+</html>
